@@ -17,6 +17,11 @@ try:
 except ImportError:
     ChatOpenAI = None  # type: ignore
 
+try:
+    from langchain_anthropic import ChatAnthropic
+except ImportError:
+    ChatAnthropic = None  # type: ignore
+
 
 if ChatOpenAI is not None:
     class ChatOpenAIWithReasoning(ChatOpenAI):  # type: ignore[misc,valid-type]
@@ -172,28 +177,44 @@ def _sync_provider_env() -> None:
 
 
 def build_llm(*, model_name: Optional[str] = None, callbacks: Any = None) -> Any:
-    """Construct a ChatOpenAI instance.
+    """Construct a LangChain chat LLM instance.
 
     Args:
         model_name: Model name; defaults to LANGCHAIN_MODEL_NAME.
         callbacks: Optional LangChain callbacks.
 
     Returns:
-        ChatOpenAI instance.
+        ChatAnthropic or ChatOpenAI instance depending on LANGCHAIN_PROVIDER.
 
     Raises:
-        RuntimeError: If langchain-openai is missing or LANGCHAIN_MODEL_NAME is unset.
+        RuntimeError: If required package is missing or LANGCHAIN_MODEL_NAME is unset.
     """
-    if ChatOpenAI is None:
-        raise RuntimeError("langchain-openai is not installed")
-    _sync_provider_env()
+    _ensure_dotenv()
+    provider = os.getenv("LANGCHAIN_PROVIDER", "openai").lower()
     name = model_name or os.getenv("LANGCHAIN_MODEL_NAME", "").strip()
     if not name:
         raise RuntimeError("LANGCHAIN_MODEL_NAME is not set")
     temperature = float(os.getenv("LANGCHAIN_TEMPERATURE", "0.0"))
+
+    if provider == "anthropic":
+        if ChatAnthropic is None:
+            raise RuntimeError("langchain-anthropic is not installed — run: pip install langchain-anthropic")
+        api_key = os.getenv("ANTHROPIC_API_KEY", "") or None
+        return ChatAnthropic(
+            model=name,
+            temperature=temperature,
+            timeout=float(os.getenv("TIMEOUT_SECONDS", "120")),
+            max_retries=int(os.getenv("MAX_RETRIES", "2")),
+            api_key=api_key,
+            callbacks=callbacks,
+        )
+
+    if ChatOpenAI is None:
+        raise RuntimeError("langchain-openai is not installed")
+    _sync_provider_env()
     # MiniMax requires temperature in (0.0, 1.0] — clamp to 0.01 when the
     # default 0.0 is used to avoid an API validation error.
-    if os.getenv("LANGCHAIN_PROVIDER", "openai").lower() == "minimax" and temperature <= 0.0:
+    if provider == "minimax" and temperature <= 0.0:
         temperature = 0.01
     # Optional reasoning activation for relays requiring opt-in (e.g. OpenRouter).
     # Moonshot/DeepSeek official APIs emit reasoning by default and ignore this field.

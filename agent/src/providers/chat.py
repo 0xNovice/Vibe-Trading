@@ -23,6 +23,24 @@ def _dedupe_finish_reason(raw: str) -> str:
     )
 
 
+def _normalize_content(content: Any) -> str:
+    """Normalize LLM content to a plain string.
+
+    ChatAnthropic returns content as a list of typed blocks, e.g.:
+      [{'type': 'text', 'text': 'Hello', 'index': 0}]
+    All other providers return a plain string. This collapses both forms.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            block.get("text", "") if isinstance(block, dict) else str(block)
+            for block in content
+            if not isinstance(block, dict) or block.get("type") == "text"
+        )
+    return str(content) if content is not None else ""
+
+
 @dataclass
 class ToolCallRequest:
     """Tool call request returned by the LLM.
@@ -120,7 +138,7 @@ class ChatLLM:
             accumulated = None
             for chunk in llm.stream(messages, config=config):
                 if chunk.content and on_text_chunk:
-                    on_text_chunk(chunk.content)
+                    on_text_chunk(_normalize_content(chunk.content))
                 accumulated = chunk if accumulated is None else accumulated + chunk
             if accumulated is None:
                 return LLMResponse(content="", tool_calls=[], finish_reason="stop")
@@ -152,7 +170,7 @@ class ChatLLM:
         populated by ``ChatOpenAIWithReasoning`` on both stream and non-stream paths.
         """
         return LLMResponse(
-            content=ai_message.content,
+            content=_normalize_content(ai_message.content),
             tool_calls=[
                 ToolCallRequest(id=tc["id"], name=tc["name"], arguments=tc["args"])
                 for tc in ai_message.tool_calls

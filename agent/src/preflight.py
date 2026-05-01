@@ -51,6 +51,24 @@ def _check_llm_provider() -> CheckResult:
             critical=True,
         )
 
+    # Anthropic uses its own SDK — no base URL needed, just check the API key.
+    if provider == "anthropic":
+        api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+        if not api_key:
+            return CheckResult(
+                name=f"LLM ({provider})",
+                status="not_configured",
+                message="ANTHROPIC_API_KEY not set in .env",
+                impact="agent cannot function",
+                critical=True,
+            )
+        return CheckResult(
+            name=f"LLM ({provider})",
+            status="ready",
+            message=f"{model} via Anthropic API",
+            impact="",
+        )
+
     _sync_provider_env()
     base_url = os.getenv("OPENAI_BASE_URL", "") or os.getenv("OPENAI_API_BASE", "")
 

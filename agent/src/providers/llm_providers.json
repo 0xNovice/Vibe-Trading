@@ -1,5 +1,14 @@
 [
   {
+    "name": "anthropic",
+    "label": "Anthropic",
+    "api_key_env": "ANTHROPIC_API_KEY",
+    "base_url_env": "",
+    "default_model": "claude-sonnet-4-5",
+    "default_base_url": "",
+    "api_key_required": true
+  },
+  {
     "name": "openrouter",
     "label": "OpenRouter",
     "api_key_env": "OPENROUTER_API_KEY",
