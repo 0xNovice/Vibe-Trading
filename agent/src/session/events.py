@@ -183,7 +183,7 @@ class EventBus:
         Yields:
             SSEEvent objects.
         """
-        queue: asyncio.Queue[SSEEvent] = asyncio.Queue(maxsize=200)
+        queue: asyncio.Queue[SSEEvent] = asyncio.Queue(maxsize=2000)
 
         with self._lock:
             if session_id not in self._subscribers:

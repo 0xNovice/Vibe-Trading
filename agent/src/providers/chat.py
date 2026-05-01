@@ -5,10 +5,29 @@ ChatLLM is designed specifically for the AgentLoop ReAct cycle.
 
 from __future__ import annotations
 
+import time
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from src.providers.llm import build_llm
+
+logger = logging.getLogger(__name__)
+
+
+def _with_retry(fn, max_retries: int = 5, base_delay: float = 60.0):
+    """Retry fn on 429 rate-limit errors with exponential backoff."""
+    for attempt in range(max_retries):
+        try:
+            return fn()
+        except Exception as e:
+            if "429" in str(e) or "rate_limit" in str(e).lower():
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    logger.warning("Rate limit hit, retrying in %.0fs (attempt %d/%d)...", delay, attempt + 1, max_retries)
+                    time.sleep(delay)
+                    continue
+            raise
 
 
 def _dedupe_finish_reason(raw: str) -> str:
@@ -108,7 +127,7 @@ class ChatLLM:
         """
         llm = self._llm.bind_tools(tools) if tools else self._llm
         config = {"timeout": timeout} if timeout else {}
-        ai_message = llm.invoke(messages, config=config)
+        ai_message = _with_retry(lambda: llm.invoke(messages, config=config))
         return self._parse_response(ai_message)
 
     def stream_chat(
@@ -135,11 +154,16 @@ class ChatLLM:
         try:
             llm = self._llm.bind_tools(tools) if tools else self._llm
             config = {"timeout": timeout} if timeout else {}
-            accumulated = None
-            for chunk in llm.stream(messages, config=config):
-                if chunk.content and on_text_chunk:
-                    on_text_chunk(_normalize_content(chunk.content))
-                accumulated = chunk if accumulated is None else accumulated + chunk
+
+            def _stream():
+                acc = None
+                for chunk in llm.stream(messages, config=config):
+                    if chunk.content and on_text_chunk:
+                        on_text_chunk(_normalize_content(chunk.content))
+                    acc = chunk if acc is None else acc + chunk
+                return acc
+
+            accumulated = _with_retry(_stream)
             if accumulated is None:
                 return LLMResponse(content="", tool_calls=[], finish_reason="stop")
             return self._parse_response(accumulated)
